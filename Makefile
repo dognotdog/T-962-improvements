@@ -14,7 +14,18 @@ vpath %.c $(SRC_DIR)
 vpath %.o $(BUILD_DIR)
 vpath %.d $(BUILD_DIR)
 
+
+# set GCC_PATH if arm-none-eabi-gcc is not installed in $PATH
+ifdef GCC_PATH
+CC := $(GCC_PATH)/arm-none-eabi-gcc
+SIZE := $(GCC_PATH)/arm-none-eabi-size
+OBJCOPY := $(GCC_PATH)/arm-none-eabi-objcopy
+else
 CC := arm-none-eabi-gcc
+SIZE := arm-none-eabi-size
+OBJCOPY := arm-none-eabi-objcopy
+endif
+
 RM := rm -rf
 
 # Flash tool settings
@@ -36,6 +47,13 @@ OBJS := $(patsubst $(SRC_DIR)%.c,$(BUILD_DIR)%.o,$(C_SRCS)) $(patsubst $(SRC_DIR
 
 C_DEPS := $(wildcard *.d)
 
+# Compiler Flags
+CPPFLAGS += -DNDEBUG -D__NEWLIB__
+CPU = -mcpu=arm7tdmi
+CFLAGS += -std=gnu99 $(CPPFLAGS) -Os -g -Wall -Wunused -c -fmessage-length=0 -fno-builtin -ffunction-sections -fdata-sections -flto -ffat-lto-objects $(CPU)
+ASFLAGS += -I $(BUILD_DIR) $(CPPFLAGS) $(CPU)
+LDFLAGS += -nostdlib -Xlinker -Map="$(BUILD_DIR)$(BASE_NAME).map" -Xlinker --gc-sections -flto -Os $(CPU) --specs=nano.specs -u _printf_float -u _scanf_float -T "$(BASE_NAME).ld"
+
 all: axf
 
 $(BUILD_DIR)version.c: $(BUILD_DIR)tag
@@ -51,13 +69,13 @@ $(BUILD_DIR)tag:
 
 $(BUILD_DIR)%.o: $(SRC_DIR)%.c $(BUILD_DIR)tag
 	@echo 'Building file: $<'
-	$(CC) -std=gnu99 -DNDEBUG -D__NEWLIB__ -Os -g -Wall -Wunused -c -fmessage-length=0 -fno-builtin -ffunction-sections -fdata-sections -flto -ffat-lto-objects -mcpu=arm7tdmi -MMD -MP -MF"$(@:%.o=%.d)" -MT"$(@:%.o=%.o)" -MT"$(@:%.o=%.d)" -o "$@" "$<"
+	$(CC) $(CFLAGS) -MMD -MP -MF"$(@:%.o=%.d)" -MT"$(@:%.o=%.o)" -MT"$(@:%.o=%.d)" -o "$@" "$<"
 	@echo 'Finished building: $(COLOR_GREEN)$<$(COLOR_END)'
 	@echo ' '
 
 $(BUILD_DIR)%.o: $(SRC_DIR)%.s $(BUILD_DIR)tag
 	@echo 'Building file: $<'
-	$(CC) -c -x assembler-with-cpp -I $(BUILD_DIR) -DNDEBUG -D__NEWLIB__ -mcpu=arm7tdmi -o "$@" "$<"
+	$(CC) -c -x assembler-with-cpp $(ASFLAGS) -o "$@" "$<"
 	@echo 'Finished building: $(COLOR_GREEN)$<$(COLOR_END)'
 	@echo ' '
 
@@ -65,7 +83,7 @@ $(BUILD_DIR)%.o: $(SRC_DIR)%.s $(BUILD_DIR)tag
 axf: $(OBJS) $(USER_OBJS)
 	@echo 'Building target: $@'
 	@echo 'Invoking: MCU Linker'
-	$(CC) -nostdlib -Xlinker -Map="$(BUILD_DIR)$(BASE_NAME).map" -Xlinker --gc-sections -flto -Os -mcpu=arm7tdmi --specs=nano.specs -u _printf_float -u _scanf_float -T "$(BASE_NAME).ld" -o "$(TARGET)" $(OBJS) $(USER_OBJS) $(LIBS)
+	$(CC) $(LDFLAGS) -o "$(TARGET)" $(OBJS) $(USER_OBJS) $(LIBS)
 	@echo 'Finished building target: $(COLOR_GREEN)$@$(COLOR_END)'
 	@echo ' '
 	$(MAKE) --no-print-directory post-build
@@ -76,9 +94,9 @@ clean:
 
 post-build:
 	-@echo 'Performing post-build steps'
-	-arm-none-eabi-gcc --version
-	-arm-none-eabi-size "$(TARGET)";
-	-arm-none-eabi-objcopy -v -O ihex "$(TARGET)" "$(BUILD_DIR)$(BASE_NAME).hex"
+	-$(CC) --version
+	-$(SIZE) "$(TARGET)";
+	-$(OBJCOPY) -v -O ihex "$(TARGET)" "$(BUILD_DIR)$(BASE_NAME).hex"
 	-@echo ' '
 
 lpc21isp: $(BUILD_DIR)tag
